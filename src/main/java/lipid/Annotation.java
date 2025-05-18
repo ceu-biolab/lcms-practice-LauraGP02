@@ -1,25 +1,28 @@
 package lipid;
 
-import java.util.Collections;
-import java.util.Objects;
-import java.util.Set;
-import java.util.TreeSet;
+import adduct.Adduct;
+import adduct.AdductList;
+
+import java.util.*;
 
 /**
  * Class to represent the annotation over a lipid
+ * Contains information about the lipid, the mass spectrometry data,
+ * ionization mode, inferred adduct, and score.
+ *
+ * @author laura
  */
 public class Annotation {
 
     private final Lipid lipid;
-    private final double mz;
+    private double mz;
     private final double intensity; // intensity of the most abundant peak in the groupedPeaks
     private final double rtMin;
-    private final IoniationMode ionizationMode;
-    private String adduct; // !!TODO The adduct will be detected based on the groupedSignals
+    private final IonizationMode ionizationMode;
+    private String adduct;
     private final Set<Peak> groupedSignals;
     private int score;
     private int totalScoresApplied;
-
 
     /**
      * @param lipid
@@ -28,7 +31,7 @@ public class Annotation {
      * @param retentionTime
      * @param ionizationMode
      */
-    public Annotation(Lipid lipid, double mz, double intensity, double retentionTime, IoniationMode ionizationMode) {
+    public Annotation(Lipid lipid, double mz, double intensity, double retentionTime, IonizationMode ionizationMode) {
         this(lipid, mz, intensity, retentionTime, ionizationMode, Collections.emptySet());
     }
 
@@ -37,20 +40,21 @@ public class Annotation {
      * @param mz
      * @param intensity
      * @param retentionTime
-     * @param ionizationMode
      * @param groupedSignals
      */
-    public Annotation(Lipid lipid, double mz, double intensity, double retentionTime, IoniationMode ionizationMode, Set<Peak> groupedSignals) {
+    public Annotation(Lipid lipid, double mz, double intensity, double retentionTime, IonizationMode ionizationMode, Set<Peak> groupedSignals) {
         this.lipid = lipid;
         this.mz = mz;
         this.rtMin = retentionTime;
         this.intensity = intensity;
         this.ionizationMode = ionizationMode;
-        // !!TODO This set should be sorted according to help the program to deisotope the signals plus detect the adduct
         this.groupedSignals = new TreeSet<>(groupedSignals);
+        this.adduct = "unknown";
         this.score = 0;
         this.totalScoresApplied = 0;
+        this.detectAdduct2();
     }
+
 
     public Lipid getLipid() {
         return lipid;
@@ -60,8 +64,16 @@ public class Annotation {
         return mz;
     }
 
+    public void setMz(double mz) {
+        this.mz = mz;
+    }
+
     public double getRtMin() {
         return rtMin;
+    }
+
+    public IonizationMode getIonizationMode() {
+        return ionizationMode;
     }
 
     public String getAdduct() {
@@ -76,14 +88,9 @@ public class Annotation {
         return intensity;
     }
 
-    public IoniationMode getIonizationMode() {
-        return ionizationMode;
-    }
-
     public Set<Peak> getGroupedSignals() {
         return Collections.unmodifiableSet(groupedSignals);
     }
-
 
     public int getScore() {
         return score;
@@ -93,15 +100,16 @@ public class Annotation {
         this.score = score;
     }
 
-    // !CHECK Take into account that the score should be normalized between -1 and 1
+    /**
+     * @param delta the score change (positive or negative)
+     */
     public void addScore(int delta) {
         this.score += delta;
         this.totalScoresApplied++;
     }
 
     /**
-     * @return The normalized score between 0 and 1 that consists on the final number divided into the times that the rule
-     * has been applied.
+     * @return  the normalized score, i.e., score divided by number of scoring events
      */
     public double getNormalizedScore() {
         return (double) this.score / this.totalScoresApplied;
@@ -128,5 +136,74 @@ public class Annotation {
                 lipid.getName(), mz, rtMin, adduct, intensity, score);
     }
 
-    // !!TODO Detect the adduct with an algorithm or with drools, up to the user.
+    /**
+     * Detects the most likely adduct associated with this annotation by comparing all possible
+     * pairs of peaks and all valid adduct combinations within the ionization mode.
+     * The method works as follows:
+     *     Selects the appropriate adduct list depending on the ionization mode (positive or negative).
+     *     For each pair of adduct candidates and peak combinations in {@code groupedSignals}:
+     *     Calculates the monoisotopic mass for each peak assuming a given adduct.
+     *     If the masses are nearly equal (within 10 ppm), it assumes both peaks belong to the same compound.
+     *     Assigns the current adduct to the one matching this annotation’s m/z value.
+     * If no valid adduct is found or the ionization mode is unknown, the adduct remains as "unknown".
+     */
+    public void detectAdduct2() {
+        final double tolerance = 10.0; // margen de error para comparar masas monoisotópicas
+        Map<String, Double> adductMap = null;
+
+        if (ionizationMode == IonizationMode.POSITIVE) {
+            adductMap = AdductList.MAPMZPOSITIVEADDUCTS;
+        } else if (ionizationMode == IonizationMode.NEGATIVE) {
+            adductMap = AdductList.MAPMZNEGATIVEADDUCTS;
+        } else {
+            this.adduct = "unknown";
+            return;
+        }
+        //Recorro todas las comb posibles de adducts
+        for (String adduct1 : adductMap.keySet()) {
+            for (String adduct2 : adductMap.keySet()) {
+                if (adduct1.equals(adduct2)) continue;
+                //Recorro todas las comb posibles de Peaks
+                for (Peak p1 : groupedSignals) {
+                    for (Peak p2 : groupedSignals) {
+                        if (p1.equals(p2)) continue; // evitamos comparar un pico consigo mismo
+                        //M = f(m/z peak, adduct)
+                        Double monoMass1 = Adduct.getMonoisotopicMassFromMZ(p1.getMz(), adduct1);
+                        Double monoMass2 = Adduct.getMonoisotopicMassFromMZ(p2.getMz(), adduct2);
+                        if (monoMass1 == null || monoMass2 == null) continue;
+
+                        double errorPPM = Adduct.calculatePPMIncrement(monoMass1, monoMass2); // tolerancia de 10 ppm
+                        if (errorPPM <= tolerance) {//diff masas practicamente 0, son adducts del mismo compound/lipid
+                            //Una vez identificada mi pareja de adducts,escojo cual se corresponde a mi experimental signal(annotation)
+                            this.adduct = adduct1;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    /**
+     * @return number of carbon atoms
+     */
+public int getCarbonCount() {
+    return lipid.getCarbonCount();
+}
+
+    /**
+     * @return number of double bonds
+     */
+public int getDoubleBondsCount() {
+    return lipid.getDoubleBondsCount();
+}
+
+    /**
+     * @return the lipid type (e.g., PC, PE, PI) of the associated lipid.
+     */
+public String getLipidType() {
+    return lipid.getLipidType();
+}
+
 }

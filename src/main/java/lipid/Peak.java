@@ -1,6 +1,19 @@
 package lipid;
 
-public class Peak {
+/**
+ * Represents a peak in a mass spectrum with m/z and intensity values.
+ *
+ * This class models an individual signal detected in the spectrum,
+ * characterized by its mass-to-charge ratio (m/z) and its relative intensity.
+ * Peaks can be compared by m/z and are commonly used in grouping and
+ * annotation steps to identify candidate compounds or adducts.
+ *
+ * The class implements {@link Comparable} based on m/z to allow sorting of peaks.
+ * Equality and hash code are also based solely on m/z value.
+ *
+ * @author laura
+ */
+public class Peak implements Comparable<Peak>{
 
     private final double mz;
     private final double intensity;
@@ -35,4 +48,14 @@ public class Peak {
         Peak other = (Peak) obj;
         return Double.compare(mz, other.mz) == 0;
     }
+
+    /**
+     * @param o the object to be compared.
+     * @return
+     */
+    @Override
+    public int compareTo(Peak o) {
+        return Double.compare( o.mz,this.mz);
+    }
+
 }
