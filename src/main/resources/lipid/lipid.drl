@@ -1,0 +1,102 @@
+package lipid;
+
+unit LipidScoreUnit;
+
+
+// This is one example of rules that only prints the factorial combination of all pairs eliminating the A-A combination.
+rule "Score 1 for lipid pair with increasing RT and carbon count"
+when
+    $a1 : /annotations [$rt1 : rtMin, $carbonCount1 : getCarbonCount(), $doubleBondCount : getDoubleBondsCount()]
+    $a2 : /annotations [this!= $a1, getDoubleBondsCount() == $doubleBondCount, rtMin > $rt1, getCarbonCount() > $carbonCount1]
+then
+    // in this case, the only change is the addition of the score, but the fact does not change so we do not break the principle of refractoriness
+    $a1.addScore(1);
+    $a2.addScore(1);
+    // !! TODO ONLY FOR DEBUGGING
+    System.out.println("Scored 1 for annotations: " + $a1 + " and " + $a2);
+end
+
+rule "Penalty for wrong RT order with carbon count"
+when
+    $a1 : /annotations [$rt1 : rtMin, $carbonCount1 : getCarbonCount(), $doubleBondCount : getDoubleBondsCount()]
+    $a2 : /annotations [this != $a1, getDoubleBondsCount() == $doubleBondCount, rtMin < $rt1, getCarbonCount() > $carbonCount1]
+then
+    $a1.addScore(-1);
+    $a2.addScore(-1);
+    System.out.println("Penalty -1 for incorrect elution order: " + $a1 + " and " + $a2);
+end
+
+rule "Score 1 for increasing double bond and earlier RT"
+when
+    $a1 : /annotations [$rt1 : rtMin, $carbonCount : getCarbonCount(), $doubleBondCount1 : getDoubleBondsCount()]
+    $a2 : /annotations [this != $a1, getCarbonCount() == $carbonCount, getDoubleBondsCount() > $doubleBondCount1, rtMin < $rt1]
+then
+    $a1.addScore(1);
+    $a2.addScore(1);
+    System.out.println("Scored 1 for double bond elution pattern: " + $a1 + " and " + $a2);
+end
+
+rule "Penalty for wrong elution with double bonds"
+when
+    $a1 : /annotations [$rt1 : rtMin, $carbonCount : getCarbonCount(), $doubleBondCount1 : getDoubleBondsCount()]
+    $a2 : /annotations [this != $a1, getCarbonCount() == $carbonCount, getDoubleBondsCount() > $doubleBondCount1, rtMin > $rt1]
+then
+    $a1.addScore(-1);
+    $a2.addScore(-1);
+    System.out.println("Penalty -1 for incorrect double bond elution: " + $a1 + " and " + $a2);
+end
+
+rule "Score 1 for correct lipid type elution order"
+when
+    $a1 : /annotations [
+        $rt1 : rtMin,
+        $carbonCount : getCarbonCount(),
+        $doubleBondCount : getDoubleBondsCount(),
+        $type1 : getLipid().getLipidType()
+    ]
+    $a2 : /annotations [
+        this != $a1,
+        getCarbonCount() == $carbonCount,
+        getDoubleBondsCount() == $doubleBondCount,
+        $type2 : getLipid().getLipidType(),
+        rtMin > $rt1,
+        lipidTypeOrder($type1) < lipidTypeOrder($type2)
+    ]
+then
+    $a1.addScore(1);
+    $a2.addScore(1);
+    System.out.println("Scored 1 for correct lipid type elution order: " + $a1 + " and " + $a2);
+end
+
+// Regla: Penalizar -1 si el tipo de lípido tiene un RT mayor según el orden esperado
+rule "Penalty for incorrect lipid type elution order"
+when
+    $a1 : /annotations [
+        $rt1 : rtMin,
+        $carbonCount : getCarbonCount(),
+        $doubleBondCount : getDoubleBondsCount(),
+        $type1 : getLipid().getLipidType()
+    ]
+    $a2 : /annotations [
+        this != $a1,
+        getCarbonCount() == $carbonCount,
+        getDoubleBondsCount() == $doubleBondCount,
+        $type2 : getLipid().getLipidType(),
+        rtMin < $rt1,
+        lipidTypeOrder($type1) < lipidTypeOrder($type2)
+    ]
+then
+    $a1.addScore(-1);
+    $a2.addScore(-1);
+    System.out.println("Penalty -1 for incorrect lipid type elution order: " + $a1 + " and " + $a2);
+end
+
+function int lipidTypeOrder(String type){
+    if(type.equals("PG")) return 1;
+    else if (type.equals("PE")) return 2;
+    else if (type.equals("PI")) return 3;
+    else if (type.equals("PA")) return 4;
+    else if (type.equals("PS")) return 5;
+    else if (type.equals("PC")) return 6;
+    else return 100;
+}
